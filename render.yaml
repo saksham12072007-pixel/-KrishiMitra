@@ -6,10 +6,9 @@ services:
     dockerfilePath: Dockerfile
     dockerContext: ./backend
     healthCheckPath: /health
-    # Runs once per deploy, before traffic cuts over to the new instance --
-    # the project deliberately never runs migrations from app startup itself
-    # (see backend/README.md) to avoid races against replicas sharing a DB.
-    preDeployCommand: alembic upgrade head
+    # Free-tier workaround: Render does not allow pre-deploy commands on free
+    # services, so migrations are run manually from the local machine or a
+    # one-off job before/after deployment.
     envVars:
       - key: APP_ENV
         value: production
