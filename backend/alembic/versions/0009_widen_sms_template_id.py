@@ -15,18 +15,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "sms_templates",
-        "template_id",
-        existing_type=sa.String(36),
-        type_=sa.String(128),
-    )
+    # batch_alter_table is required for SQLite, which has no native ALTER
+    # COLUMN (Alembic recreates the table under the hood there); it's a
+    # no-op wrapper on Postgres, which supports ALTER COLUMN directly.
+    with op.batch_alter_table("sms_templates") as batch_op:
+        batch_op.alter_column(
+            "template_id",
+            existing_type=sa.String(36),
+            type_=sa.String(128),
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "sms_templates",
-        "template_id",
-        existing_type=sa.String(128),
-        type_=sa.String(36),
-    )
+    with op.batch_alter_table("sms_templates") as batch_op:
+        batch_op.alter_column(
+            "template_id",
+            existing_type=sa.String(128),
+            type_=sa.String(36),
+        )

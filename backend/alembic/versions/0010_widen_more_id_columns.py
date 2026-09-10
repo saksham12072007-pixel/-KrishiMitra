@@ -22,42 +22,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "plots",
-        "location_precision",
-        existing_type=sa.String(20),
-        type_=sa.String(40),
-    )
-    op.alter_column(
-        "satellite_data",
-        "satellite_id",
-        existing_type=sa.String(36),
-        type_=sa.String(80),
-    )
-    op.alter_column(
-        "advisories",
-        "template_id",
-        existing_type=sa.String(36),
-        type_=sa.String(128),
-    )
+    # batch_alter_table is required for SQLite (no native ALTER COLUMN);
+    # a no-op wrapper on Postgres, which supports ALTER COLUMN directly.
+    with op.batch_alter_table("plots") as batch_op:
+        batch_op.alter_column("location_precision", existing_type=sa.String(20), type_=sa.String(40))
+    with op.batch_alter_table("satellite_data") as batch_op:
+        batch_op.alter_column("satellite_id", existing_type=sa.String(36), type_=sa.String(80))
+    with op.batch_alter_table("advisories") as batch_op:
+        batch_op.alter_column("template_id", existing_type=sa.String(36), type_=sa.String(128))
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "advisories",
-        "template_id",
-        existing_type=sa.String(128),
-        type_=sa.String(36),
-    )
-    op.alter_column(
-        "satellite_data",
-        "satellite_id",
-        existing_type=sa.String(80),
-        type_=sa.String(36),
-    )
-    op.alter_column(
-        "plots",
-        "location_precision",
-        existing_type=sa.String(40),
-        type_=sa.String(20),
-    )
+    with op.batch_alter_table("advisories") as batch_op:
+        batch_op.alter_column("template_id", existing_type=sa.String(128), type_=sa.String(36))
+    with op.batch_alter_table("satellite_data") as batch_op:
+        batch_op.alter_column("satellite_id", existing_type=sa.String(80), type_=sa.String(36))
+    with op.batch_alter_table("plots") as batch_op:
+        batch_op.alter_column("location_precision", existing_type=sa.String(40), type_=sa.String(20))

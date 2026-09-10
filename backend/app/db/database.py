@@ -31,7 +31,25 @@ connect_args = (
     if is_sqlite
     else {}
 )
-engine = create_engine(database_url, connect_args=connect_args, future=True)
+# Managed poolers (e.g. Supabase's pgbouncer) close idle connections
+# server-side; without pre-ping, SQLAlchemy can hand out a dead connection
+# and requests fail with "SSL connection has been closed unexpectedly".
+#
+# pool_size/max_overflow are deliberately conservative: SQLAlchemy's own
+# defaults (5 + 10 = 15) can, from this ONE process, consume the entirety of
+# Supabase's free-tier Session Pooler cap (15 concurrent clients total,
+# enforced server-side as EMAXCONNSESSION) -- confirmed by reproducing the
+# "max clients reached in session mode" error under moderate concurrent
+# request load. Leaving headroom matters even more once more than one
+# backend instance/worker shares the same Supabase project. pool_timeout
+# fails fast with a clear error instead of hanging for minutes when the
+# pool actually is exhausted.
+pool_kwargs = (
+    {}
+    if is_sqlite
+    else {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 3, "max_overflow": 2, "pool_timeout": 10}
+)
+engine = create_engine(database_url, connect_args=connect_args, future=True, **pool_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 
 

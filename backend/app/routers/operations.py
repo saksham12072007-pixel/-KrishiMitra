@@ -78,11 +78,12 @@ def get_operations_status(
         observations_query.with_entities(SatelliteData.data_source, func.count(SatelliteData.satellite_id))
         .group_by(SatelliteData.data_source).all()
     )
+    is_synthetic_expr = func.coalesce(SatelliteData.quality_flag == "synthetic_demo", False)
     provenance_raw = dict(
         observations_query.with_entities(
-            func.coalesce(SatelliteData.quality_flag == "synthetic_demo", False),
+            is_synthetic_expr,
             func.count(SatelliteData.satellite_id),
-        ).group_by(SatelliteData.quality_flag == "synthetic_demo").all()
+        ).group_by(is_synthetic_expr).all()
     )
     provenance = {("synthetic_demo" if is_synthetic else "provider"): count for is_synthetic, count in provenance_raw.items()}
 
