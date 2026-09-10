@@ -5,19 +5,21 @@ import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import type { InstitutionalRole } from "../types";
 
-const links: Array<{ label: string; path: string; number: string; roles?: InstitutionalRole[] }> = [
-  { label: "Overview", path: "/", number: "01" },
-  { label: "Live map", path: "/map", number: "02" },
-  { label: "Alerts", path: "/alerts", number: "03" },
-  { label: "Inspections", path: "/inspections", number: "04" },
-  { label: "Advisories", path: "/advisories", number: "05" },
-  { label: "Dataset import", path: "/dataset-import", number: "06" },
-  { label: "Model monitoring", path: "/model-monitoring", number: "07", roles: ["admin", "analyst"] },
-  { label: "Data quality", path: "/data-quality", number: "08", roles: ["admin"] },
-  { label: "Analytics", path: "/analytics", number: "09", roles: ["admin", "district_officer", "analyst"] },
-  { label: "Operations", path: "/operations", number: "10" },
-  { label: "Messaging", path: "/messaging", number: "11", roles: ["admin", "district_officer", "field_officer"] },
-  { label: "User management", path: "/users", number: "12", roles: ["admin"] },
+// Numbers are assigned sequentially at render time (see `links.filter(...)`
+// below), not hardcoded here -- role-based filtering hides some of these per
+// viewer, and a fixed number would leave gaps (e.g. 06 -> 10) once items are
+// hidden instead of counting 01..N over whatever is actually visible.
+const links: Array<{ label: string; path: string; roles?: InstitutionalRole[] }> = [
+  { label: "Overview", path: "/" },
+  { label: "Live map", path: "/map" },
+  { label: "Alerts", path: "/alerts" },
+  { label: "Inspections", path: "/inspections" },
+  { label: "Advisories", path: "/advisories" },
+  { label: "Dataset import", path: "/dataset-import" },
+  { label: "Analytics", path: "/analytics", roles: ["admin", "district_officer", "analyst"] },
+  { label: "Operations", path: "/operations" },
+  { label: "Messaging", path: "/messaging", roles: ["admin", "district_officer", "field_officer"] },
+  { label: "User management", path: "/users", roles: ["admin"] },
 ];
 
 export function AppShell() {
@@ -45,7 +47,7 @@ export function AppShell() {
         <div className="brand"><span className="brand-mark">K</span><div><strong>KrishiMitra</strong><small>Crop intelligence</small></div></div>
         <div className="scope-card"><span className="eyebrow">ACTIVE SCOPE</span><strong>{user?.assigned_geography?.districts?.[0] ?? "National overview"}</strong><span>{user?.role?.replace("_", " ")}</span></div>
         <nav className="nav-list" aria-label="Primary navigation">
-          {links.filter(link => !link.roles || (user?.role && link.roles.includes(user.role))).map(link => <NavLink key={link.path} to={link.path} end={link.path === "/"} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><span className="nav-number">{link.number}</span>{link.label}</NavLink>)}
+          {links.filter(link => !link.roles || (user?.role && link.roles.includes(user.role))).map((link, index) => <NavLink key={link.path} to={link.path} end={link.path === "/"} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}><span className="nav-number">{String(index + 1).padStart(2, "0")}</span>{link.label}</NavLink>)}
         </nav>
         <div className="sidebar-footer"><button className="nav-item muted" onClick={logout}><span className="nav-number">--</span>Sign out</button></div>
       </aside>

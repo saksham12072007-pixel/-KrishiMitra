@@ -141,20 +141,28 @@ def _weather(rng: random.Random, day_index: int, state: str) -> tuple[float, flo
     return round(rainfall, 2), round(max_temp, 2), round(min_temp, 2)
 
 
+def _chunked_delete(session, model, column, ids: list[str], batch_size: int = 400) -> None:
+    """Delete ... WHERE column IN (ids) in batches -- a single IN clause with
+    thousands of ids (2500 plots x 14 advisories = 35000+) exceeds SQLite's
+    bound-variable limit ("too many SQL variables"), so this re-run's own
+    cleanup of the previous run's rows must chunk it, not just the insert."""
+    for start in range(0, len(ids), batch_size):
+        batch = ids[start:start + batch_size]
+        session.query(model).filter(column.in_(batch)).delete(synchronize_session=False)
+
+
 def _delete_previous(session) -> None:
     plot_ids = [row[0] for row in session.query(Plot.plot_id).filter(Plot.plot_id.like(f"{PREFIX}%")).all()]
     farmer_ids = [row[0] for row in session.query(Farmer.farmer_id).filter(Farmer.farmer_id.like(f"{PREFIX}%")).all()]
     if plot_ids:
-        advisory_ids = [row[0] for row in session.query(Advisory.advisory_id).filter(Advisory.plot_id.in_(plot_ids)).all()]
-        prediction_ids = [row[0] for row in session.query(MlPrediction.prediction_id).filter(MlPrediction.plot_id.in_(plot_ids)).all()]
-        session.query(SmsLog).filter(SmsLog.farmer_id.in_(farmer_ids)).delete(synchronize_session=False)
-        session.query(Advisory).filter(Advisory.advisory_id.in_(advisory_ids)).delete(synchronize_session=False)
-        session.query(MlPrediction).filter(MlPrediction.prediction_id.in_(prediction_ids)).delete(synchronize_session=False)
-        session.query(PlotFeatures).filter(PlotFeatures.plot_id.in_(plot_ids)).delete(synchronize_session=False)
-        session.query(SatelliteData).filter(SatelliteData.plot_id.in_(plot_ids)).delete(synchronize_session=False)
-        session.query(Plot).filter(Plot.plot_id.in_(plot_ids)).delete(synchronize_session=False)
+        _chunked_delete(session, Advisory, Advisory.plot_id, plot_ids)
+        _chunked_delete(session, MlPrediction, MlPrediction.plot_id, plot_ids)
+        _chunked_delete(session, PlotFeatures, PlotFeatures.plot_id, plot_ids)
+        _chunked_delete(session, SatelliteData, SatelliteData.plot_id, plot_ids)
+        _chunked_delete(session, Plot, Plot.plot_id, plot_ids)
     if farmer_ids:
-        session.query(Farmer).filter(Farmer.farmer_id.in_(farmer_ids)).delete(synchronize_session=False)
+        _chunked_delete(session, SmsLog, SmsLog.farmer_id, farmer_ids)
+        _chunked_delete(session, Farmer, Farmer.farmer_id, farmer_ids)
     session.query(ModelEvaluationRun).filter(ModelEvaluationRun.run_id.like(f"{PREFIX}%")).delete(synchronize_session=False)
     session.commit()
 
@@ -166,7 +174,10 @@ def seed(count: int, districts_file: Path | None, history_days: int) -> dict[str
     Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     rng = random.Random(20260908)
-    today = date(2026, 9, 8)
+    # Anchoring history to the real current date (not a fixed past date) keeps
+    # the seeded advisory trend ending "today" no matter when this re-runs --
+    # a hardcoded date goes stale the moment it's in the past.
+    today = date.today()
     try:
         _delete_previous(session)
         user = session.query(InstitutionalUser).filter_by(email=DEMO_EMAIL).first()
@@ -232,9 +243,11 @@ def seed(count: int, districts_file: Path | None, history_days: int) -> dict[str
             crop_factor = (index % 9) / 100
             base_ndvi = 0.42 + crop_factor
             base_nir = 0.48 + crop_factor
+            rainfall_by_day: dict[date, float] = {}
             for offset in range(history_days):
                 obs_day = today - timedelta(days=history_days - 1 - offset)
                 rainfall, temp_max, temp_min = _weather(rng, offset + index, state)
+                rainfall_by_day[obs_day] = rainfall
                 ndvi = max(0.18, min(0.88, base_ndvi + 0.10 * math.sin(offset / 12) + rng.gauss(0, 0.025)))
                 nir = max(0.20, min(0.92, base_nir + 0.08 * math.sin(offset / 14) + rng.gauss(0, 0.02)))
                 if offset % 6 == 0:
@@ -309,10 +322,20 @@ def seed(count: int, districts_file: Path | None, history_days: int) -> dict[str
                         label_source="water_balance",
                     ))
             for day_offset in range(14):
-                created_at = datetime.combine(today - timedelta(days=13 - day_offset), time(12), tzinfo=timezone.utc)
+                obs_day = today - timedelta(days=13 - day_offset)
+                created_at = datetime.combine(obs_day, time(12), tzinfo=timezone.utc)
                 advisory_class = REALISTIC_CLASS_PATTERN[(index + day_offset // 3) % len(REALISTIC_CLASS_PATTERN)]
                 prediction_id = f"{PREFIX}prediction-{index:05d}-{day_offset:02d}"
                 advisory_id = f"{PREFIX}advisory-{index:05d}-{day_offset:02d}"
+                # Irrigation-risk (nir_percent) responds inversely to that
+                # day's actual rainfall, using the same saturation curve as
+                # the real production model (WaterBalanceBucketModel.estimate_stress:
+                # rainfall_impact = min(rainfall_mm / 10, 1)) -- more rain,
+                # lower risk -- so this stays physically consistent instead of
+                # varying independently of the weather it's supposed to reflect.
+                day_rainfall = rainfall_by_day.get(obs_day, 0.0)
+                rainfall_impact = min(day_rainfall / 10, 1)
+                nir_percent = max(15.0, min(85.0, base_nir * 100 - rainfall_impact * 20))
                 prediction_rows.append(MlPrediction(
                     prediction_id=prediction_id,
                     plot_id=plot.plot_id,
@@ -325,7 +348,8 @@ def seed(count: int, districts_file: Path | None, history_days: int) -> dict[str
                     input_feature_snapshot={
                         "dataset": "synthetic_demo",
                         "provider": "synthetic_sentinel_weather",
-                        "nir_percent": round((base_nir + (day_offset % 5) * 0.01) * 100, 2),
+                        "nir_percent": round(nir_percent, 2),
+                        "rainfall_mm": day_rainfall,
                         "sentinel1": True,
                         "sentinel2": True,
                         "weather": True,

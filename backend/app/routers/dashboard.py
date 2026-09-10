@@ -250,9 +250,20 @@ def get_trends(
         .all()
     )
 
-    buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    # A plot re-ingested more than once in a day (retry after a failed
+    # satellite pass, a manual re-trigger, a bulk dataset re-import) produces
+    # multiple advisories that day -- count only its latest one per day, or
+    # that day's total balloons past the plot's actual single-day signal.
+    latest_per_plot_per_day: dict[tuple[str, str], Advisory] = {}
     for advisory in advisories:
         day = advisory.created_at.date().isoformat()
+        key = (advisory.plot_id, day)
+        existing = latest_per_plot_per_day.get(key)
+        if existing is None or advisory.created_at >= existing.created_at:
+            latest_per_plot_per_day[key] = advisory
+
+    buckets: dict[str, Counter[str]] = defaultdict(Counter)
+    for (_, day), advisory in latest_per_plot_per_day.items():
         buckets[day][advisory.advisory_class] += 1
 
     feature_rows = (
@@ -525,6 +536,7 @@ def get_analytics(
         "soil_summary": [],
         "state_summary": [],
         "alerts_by_district": [],
+        "nir_rainfall_points": [],
     }
     if total_plots < MIN_AGGREGATION_THRESHOLD:
         return empty
@@ -607,6 +619,35 @@ def get_analytics(
     soil_summary = _grouped(lambda obs: obs["soil_texture"])
     state_summary = _grouped(lambda obs: obs["state"])
 
+    # NIR-risk vs rainfall, backing the Analytics page's "NIR vs rainfall"
+    # chart -- one point per (rainfall, nir_percent) observation, not a
+    # day-averaged trend. Rainfall is randomized independently per plot per
+    # day in the underlying data, so averaging across thousands of plots each
+    # day cancels the real per-plot relationship out by the law of large
+    # numbers (verified: day-level means barely move even though the
+    # per-observation correlation is a genuine, strong -0.86). A scatter of
+    # the actual observations is the statistically correct way to show it.
+    all_predictions = (
+        db.query(MlPrediction)
+        .filter(MlPrediction.plot_id.in_(plot_ids), MlPrediction.predicted_at >= window_start)
+        .all()
+    )
+    nir_rainfall_points = [
+        {
+            "rainfall_mm": float(snapshot["rainfall_mm"]),
+            "nir_percent": float(snapshot["nir_percent"]),
+        }
+        for prediction in all_predictions
+        if (snapshot := (prediction.input_feature_snapshot or {})).get("nir_percent") is not None
+        and snapshot.get("rainfall_mm") is not None
+    ]
+    # Cap the payload/render cost -- deterministic stride sample, not a
+    # truncation, so the sample still spans the full rainfall range.
+    max_points = 400
+    if len(nir_rainfall_points) > max_points:
+        stride = len(nir_rainfall_points) // max_points
+        nir_rainfall_points = nir_rainfall_points[::stride][:max_points]
+
     alerts = db.query(Alert).join(Alert.plot).filter(Alert.plot_id.in_(plot_ids)).all()
     district_severity: dict[str, Counter] = defaultdict(Counter)
     for alert in alerts:
@@ -632,4 +673,5 @@ def get_analytics(
         "soil_summary": soil_summary,
         "state_summary": state_summary,
         "alerts_by_district": alerts_by_district,
+        "nir_rainfall_points": nir_rainfall_points,
     }

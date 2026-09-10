@@ -44,6 +44,14 @@ class InstitutionalUserCreateRequest(BaseModel):
     assigned_geography: dict | None = None
 
 
+class InstitutionalUserUpdateRequest(BaseModel):
+    """Admin-only edit of an existing user's role/geography (e.g. promoting a
+    self-signed-up field_officer, or scoping their assigned districts)."""
+
+    role: InstitutionalRole | None = None
+    assigned_geography: dict | None = None
+
+
 class InstitutionalLoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -111,6 +119,31 @@ def create_institutional_user(
 ) -> dict:
     """Admin-only provisioning for elevated roles (admin/district_officer/analyst)."""
     user = _create_user(db, payload.email, payload.password, payload.role, payload.assigned_geography)
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "role": user.role,
+        "assigned_geography": user.assigned_geography,
+    }
+
+
+@router.patch("/users/{user_id}")
+def update_institutional_user(
+    user_id: str,
+    payload: InstitutionalUserUpdateRequest,
+    current_user: InstitutionalUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Admin-only edit of an existing user's role/geography."""
+    user = db.query(InstitutionalUser).filter(InstitutionalUser.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Institutional user not found")
+    if payload.role is not None:
+        user.role = payload.role
+    if payload.assigned_geography is not None:
+        user.assigned_geography = payload.assigned_geography
+    db.commit()
+    db.refresh(user)
     return {
         "user_id": user.user_id,
         "email": user.email,

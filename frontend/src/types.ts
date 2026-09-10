@@ -213,6 +213,7 @@ export interface Analytics {
   observations: Array<{ plot_id: string; district: string | null; crop: string; nir_percent: number; ndvi: number | null; rainfall_7d: number | null; urgency: string }>;
   crop_summary: Array<{ name: string; count: number; avg_nir: number | null; avg_ndvi: number | null; avg_rainfall_7d: number | null }>;
   alerts_by_district: Array<{ name: string; safe: number; moderate: number; high: number; urgent: number }>;
+  nir_rainfall_points: Array<{ rainfall_mm: number; nir_percent: number }>;
 }
 export interface InstitutionalUserRecord {
   user_id: string; email: string; role: InstitutionalRole; assigned_geography: { states?: string[]; districts?: string[] };

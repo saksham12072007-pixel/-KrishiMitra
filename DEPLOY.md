@@ -1,14 +1,35 @@
-# Deploying to Render
+# Deploying to Render + Supabase
 
-This repo deploys as three Render resources, defined in `render.yaml`:
+The database and the app run on two different platforms:
 
-- `crop-advisory-db` — managed Postgres (standard, not PostGIS — the app
-  stores plot coordinates as plain WKT text, not a real geometry column, so
-  PostGIS isn't required for current functionality).
-- `crop-advisory-backend` — the FastAPI app (`backend/Dockerfile`), migrated
-  via a pre-deploy step (`alembic upgrade head`), never on app startup.
-- `crop-advisory-frontend` — the built React app served by nginx
-  (`frontend/Dockerfile`).
+- **Supabase** — managed Postgres only. It does not run this app's Python
+  code; it's just where `DATABASE_URL` points.
+- **Render** — runs the actual app, as two services defined in `render.yaml`:
+  - `crop-advisory-backend` — the FastAPI app (`backend/Dockerfile`), migrated
+    via a pre-deploy step (`alembic upgrade head`), never on app startup.
+  - `crop-advisory-frontend` — the built React app served by nginx
+    (`frontend/Dockerfile`).
+
+PostGIS is not required — the app stores plot coordinates as plain WKT text,
+not a real geometry column, so Supabase's default Postgres (no extensions
+needed) is sufficient for current functionality.
+
+## 0. Create the Supabase project and get a connection string
+
+1. [supabase.com](https://supabase.com) → sign in → **New project**. Pick any
+   name/region (closer to your users is fine) and set a strong database
+   password — you'll need it in the connection string below.
+2. Wait for provisioning (a couple of minutes), then open the project →
+   **Project Settings** (gear icon, bottom left) → **Database**.
+3. Under **Connection string**, pick the **URI** tab. Use the **Session
+   pooler** connection string (or the direct connection, both on port 5432 by
+   default) — not the **Transaction pooler** (port 6543), which doesn't
+   support the prepared statements SQLAlchemy may issue.
+4. Copy it — it looks like
+   `postgresql://postgres.xxxxxxxx:[YOUR-PASSWORD]@aws-0-xx-xxxx-1.pooler.supabase.com:5432/postgres`
+   — and replace `[YOUR-PASSWORD]` with the password from step 1. This whole
+   string is your `DATABASE_URL`; the app already normalizes Supabase's
+   `postgresql://` scheme to the `psycopg` driver it uses, no edits needed.
 
 ## 1. Push this repo to GitHub
 
@@ -18,17 +39,22 @@ git branch -M main
 git push -u origin main
 ```
 
+(Already done, per your last message — skip if so.)
+
 ## 2. Create the Blueprint on Render
 
 1. Render dashboard → **New +** → **Blueprint**.
 2. Connect your GitHub account/repo if you haven't already, then select this repo.
-3. Render detects `render.yaml` and lists all three resources.
+3. Render detects `render.yaml` and lists the two app services (no database —
+   Supabase is external to Render now).
 4. You'll be prompted to fill in every `sync: false` env var before the first
-   deploy. For the first pass, it's fine to leave `FRONTEND_ALLOWED_ORIGINS`
-   and `VITE_API_BASE_URL` as placeholders (e.g. `https://placeholder`) —
-   you'll correct them in step 4, since neither service has a URL yet.
-5. Click **Apply**. Render provisions the database, then builds and deploys
-   both services.
+   deploy:
+   - `DATABASE_URL` → the Supabase connection string from step 0.
+   - `FRONTEND_ALLOWED_ORIGINS` and `VITE_API_BASE_URL` → fine as placeholders
+     for now (e.g. `https://placeholder`), corrected in step 4 below since
+     neither Render service has a URL yet.
+5. Click **Apply**. Render builds and deploys both services against your
+   Supabase database.
 
 ## 3. Note the two service URLs
 
@@ -61,15 +87,27 @@ geography — by design, so nobody can self-grant themselves visibility into
 data outside their region. There is deliberately no self-serve way to become
 `admin`.
 
-To seed an admin account (and, optionally, the demo dataset) in the new
-production database, run the existing seed script from your machine against
-Render's **External Database URL** (found on the `crop-advisory-db` page —
-copy the "External Connection String", not the internal one):
+To create just an admin account (no demo data) in the new production
+database, run this from your machine against the same Supabase connection
+string from step 0:
 
 ```bash
 cd backend
-DATABASE_URL="<external connection string from Render>" python scripts/seed_india_dataset.py
+DATABASE_URL="<your Supabase connection string>" python -c "
+from app.db.database import SessionLocal
+from app.models import InstitutionalUser
+from app.core.auth import hash_password
+import uuid
+db = SessionLocal()
+db.add(InstitutionalUser(user_id=str(uuid.uuid4()), email='you@example.com', password_hash=hash_password('ChangeThisPassword123!'), role='admin', assigned_geography={}))
+db.commit()
+print('Admin account created.')
+"
 ```
+
+Only run `python scripts/seed_india_dataset.py` against production if you
+actually want ~2500 rows of clearly-marked synthetic demo data seeded in —
+useful for a pitch/demo deployment, not for a real pilot database.
 
 This creates `demo@krishimitra.example.com` / `DemoPassword123!` as an
 `admin` account, plus the synthetic pilot dataset. Skip this if you'd rather
