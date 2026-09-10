@@ -43,7 +43,7 @@ export function AnalyticsPage() {
                 <BarChart data={cropData} layout="vertical" margin={{ left: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e4eae5" horizontal={false} />
                   <XAxis type="number" domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: "#7a887f", fontSize: 12 }} />
-                  <YAxis type="category" dataKey="name" width={90} axisLine={false} tickLine={false} tick={{ fill: "#173d2c", fontSize: 12, textTransform: "capitalize" }} />
+                  <YAxis type="category" dataKey="name" width={90} axisLine={false} tickLine={false} tick={{ fill: "#173d2c", fontSize: 12 }} />
                   <Tooltip contentStyle={{ border: "1px solid #dce5dd", borderRadius: 8, boxShadow: "0 6px 20px #173d2c14" }} formatter={(value: number) => [`${value}%`, "Avg NIR risk"]} />
                   <Bar dataKey="avg_nir" name="Avg NIR risk" fill="#d56b4e" radius={[0, 4, 4, 0]} />
                 </BarChart>
