@@ -12,6 +12,7 @@ backend/.env
 !backend/.env.example
 !backend/.env.postgis.example
 backend/ml_artifacts/
+backend/exports/
 
 # Frontend (Node)
 frontend/node_modules/

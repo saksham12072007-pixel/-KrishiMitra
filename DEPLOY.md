@@ -56,6 +56,24 @@ git push -u origin main
 5. Click **Apply**. Render builds and deploys both services against your
    Supabase database.
 
+## 2b. Apply database migrations
+
+Render's free plan doesn't support pre-deploy commands, so this project's
+`render.yaml` no longer runs `alembic upgrade head` automatically (see
+`backend/README.md` for why migrations never run from app startup either).
+**The backend will come up "healthy" on `/health` but every DB-backed request
+will fail with an empty schema until you run this manually** — do it once
+right after the first Apply, and again after any deploy that adds a new
+migration:
+
+```bash
+cd backend
+DATABASE_URL="<your Supabase connection string from step 0>" alembic upgrade head
+```
+
+`GET /ready` on the backend will return `503` until this has been run
+successfully.
+
 ## 3. Note the two service URLs
 
 Once both services are live, Render shows each one's URL, e.g.:

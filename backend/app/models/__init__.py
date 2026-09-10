@@ -45,7 +45,7 @@ class Plot(Base):
     farmer_id: Mapped[str] = mapped_column(ForeignKey("farmers.farmer_id"), nullable=False)
     plot_nickname: Mapped[str | None] = mapped_column(String(40), nullable=True)
     location_point: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    location_precision: Mapped[str] = mapped_column(String(20), default="gps")
+    location_precision: Mapped[str] = mapped_column(String(40), default="gps")
     village_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     buffer_polygon: Mapped[str | None] = mapped_column(String(255), nullable=True)
     crop_type: Mapped[str] = mapped_column(String(60), nullable=False)
@@ -72,7 +72,8 @@ class Plot(Base):
 class SatelliteData(Base):
     __tablename__ = "satellite_data"
 
-    satellite_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # e.g. "weather-<uuid>-<index>" -- longer than a bare UUID.
+    satellite_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     plot_id: Mapped[str] = mapped_column(ForeignKey("plots.plot_id"), nullable=False)
     data_source: Mapped[str] = mapped_column(String(30), nullable=False)
     data_type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -208,7 +209,9 @@ class ModelEvaluationRun(Base):
 class SmsTemplate(Base):
     __tablename__ = "sms_templates"
 
-    template_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Composite id of crop_code-reason_code-language_code (up to 60+50+10 chars
+    # plus separators), not a UUID -- 36 was too narrow for real seed data.
+    template_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     crop_code: Mapped[str] = mapped_column(String(60), nullable=False)
     reason_code: Mapped[str] = mapped_column(String(50), nullable=False)
     language_code: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -228,7 +231,9 @@ class Advisory(Base):
     plot_id: Mapped[str] = mapped_column(ForeignKey("plots.plot_id"), nullable=False)
     prediction_id: Mapped[str] = mapped_column(ForeignKey("ml_predictions.prediction_id"), nullable=False)
     advisory_class: Mapped[str] = mapped_column(String(30), nullable=False)
-    template_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Matches sms_templates.template_id's width (String(128), also a
+    # composite id rather than a UUID).
+    template_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     language_used: Mapped[str | None] = mapped_column(String(10), nullable=True)
     sms_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     ivr_triggered: Mapped[bool] = mapped_column(Boolean, default=False)
